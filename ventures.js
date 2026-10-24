@@ -1,23 +1,17 @@
 "use strict";
 
 /* ------------------------------------------------------------------
-   ventures.js  (shared by index.html and venture.html)
+   ventures.js - shared by every page that shows ventures.
 
-   STEP 1 - Where does the data come from?
-   Right now it reads the local file "ventures.csv".
-   When your Google Sheet is ready, publish it as CSV
-   (File > Share > Publish to web > choose the sheet > CSV)
-   and paste that link between the quotes below.
+   Data comes from data/ventures.csv. To use a Google Sheet instead,
+   publish it as CSV (File > Share > Publish to web > CSV) and paste
+   the link into SHEET_URL below.
 ------------------------------------------------------------------- */
-const SHEET_URL = "ventures.csv";
-// Example after publishing:
-// const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/XXXXXXXX/pub?output=csv";
+const SHEET_URL = "data/ventures.csv";
 
-
-/* STEP 2 - Turn CSV text into rows.
-   A CSV is just text: one line per row, columns split by commas.
-   Catch: a cell can contain a comma inside "quotes", so we can't
-   simply do text.split(","). This function walks letter by letter. */
+/* Turn CSV text into an array of rows.
+   Cells can contain commas inside "quotes", so we walk the text
+   one character at a time instead of using split(","). */
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -28,18 +22,20 @@ function parseCSV(text) {
     const c = text[i];
 
     if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { cell += '"'; i++; } // "" means a literal quote
-        else inQuotes = false;                         // closing quote
+      if (c === '"' && text[i + 1] === '"') {
+        cell += '"'; // "" inside quotes is a literal quote
+        i++;
+      } else if (c === '"') {
+        inQuotes = false;
       } else {
         cell += c;
       }
     } else if (c === '"') {
       inQuotes = true;
-    } else if (c === ",") {                            // end of a cell
+    } else if (c === ",") {
       row.push(cell);
       cell = "";
-    } else if (c === "\n" || c === "\r") {             // end of a row
+    } else if (c === "\n" || c === "\r") {
       if (c === "\r" && text[i + 1] === "\n") i++;
       row.push(cell);
       cell = "";
@@ -49,37 +45,77 @@ function parseCSV(text) {
       cell += c;
     }
   }
-  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+
+  if (cell !== "" || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
   return rows;
 }
 
+/* Where the data came from (shown in small print on the directory). */
+let ventureSource = "";
 
-/* STEP 3 - Fetch the sheet and convert rows into objects.
-   First row = column names (id, name, sector...).
-   Each next row becomes: { id:"1", name:"UltraNova AI", ... }  */
-let ventureSource = "";   // tells the page where the data came from
-
+/* Load all ventures. First row of the CSV = column names, and every
+   other row becomes an object like { id: "1", name: "ReviveEV", ... }.
+   If the CSV cannot be fetched (e.g. file opened by double-click),
+   fall back to VENTURES_BACKUP from data/ventures-data.js. */
 async function loadVentures() {
   try {
     const res = await fetch(SHEET_URL);
     if (!res.ok) throw new Error("HTTP " + res.status);
 
     const rows = parseCSV(await res.text());
-    const headers = rows[0].map(h => h.trim().toLowerCase());
-    ventureSource = SHEET_URL.startsWith("http") ? "Google Sheet (live)" : "ventures.csv";
+    const headers = rows[0].map((h) => h.trim().toLowerCase());
+    ventureSource = SHEET_URL.startsWith("http") ? "Google Sheet (live)" : "data/ventures.csv";
 
     return rows
       .slice(1)
-      .filter(r => r.some(c => c.trim() !== ""))       // skip empty rows
-      .map(r => {
-        const v = {};
-        headers.forEach((h, i) => { v[h] = (r[i] || "").trim(); });
-        return v;
+      .filter((r) => r.some((c) => c.trim() !== ""))
+      .map((r) => {
+        const venture = {};
+        headers.forEach((h, i) => {
+          venture[h] = (r[i] || "").trim();
+        });
+        return venture;
       });
   } catch (err) {
-    // Sheet/CSV not reachable (offline, wrong link, or opened by double-click)
     console.warn("Using backup data:", err);
-    ventureSource = "local backup (ventures-data.js)";
+    ventureSource = "local backup (data/ventures-data.js)";
     return VENTURES_BACKUP;
   }
+}
+
+/* Link to a venture's own page. */
+function ventureHref(v) {
+  return "venture.html?slug=" + encodeURIComponent(v.slug);
+}
+
+/* Build one venture card (used on the home page and the directory). */
+function createVentureCard(v, showDomain) {
+  const card = document.createElement("a");
+  card.className = "venture-card";
+  card.href = ventureHref(v);
+
+  const meta = document.createElement("small");
+  meta.textContent = v.sector + " · " + v.status;
+
+  const name = document.createElement("b");
+  name.textContent = v.name;
+
+  const index = document.createElement("span");
+  index.className = "card-index";
+  index.textContent = String(v.id).padStart(2, "0");
+
+  card.append(meta, name);
+
+  if (showDomain && v.domain) {
+    const domain = document.createElement("div");
+    domain.className = "domain";
+    domain.textContent = v.domain;
+    card.append(domain);
+  }
+
+  card.append(index);
+  return card;
 }
